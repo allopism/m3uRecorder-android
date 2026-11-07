@@ -20,3 +20,6 @@ keystore.properties
 # Sistema
 .DS_Store
 Thumbs.db
+
+# APK finales copiados para instalar
+dist/

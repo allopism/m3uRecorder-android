@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.m3urecorder.app.BuildConfig
 import com.m3urecorder.app.data.ApiClient
 import com.m3urecorder.app.data.AppPrefs
 import com.m3urecorder.app.service.BackgroundSync
@@ -199,6 +201,13 @@ fun ServerSettingsDialog(
                         }
                     }) { Text("Permitir alarmas exactas") }
                 }
+
+                Text(
+                    "m3uRecorder ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.text3,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         },
         confirmButton = {

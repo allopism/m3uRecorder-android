@@ -4,7 +4,8 @@ import androidx.compose.runtime.Immutable
 
 @Immutable
 data class VpnInfo(
-    val enabled: Boolean = true,
+    // Falso hasta saber del servidor: así el botón de VPN no aparece antes de conectar
+    val enabled: Boolean = false,
     val available: Boolean = false,
     val status: String = "unknown",
     val publicIp: String = "",
