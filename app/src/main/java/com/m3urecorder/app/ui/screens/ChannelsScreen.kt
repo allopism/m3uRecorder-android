@@ -1,197 +1,189 @@
 package com.m3urecorder.app.ui.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SearchOff
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.m3urecorder.app.data.*
-import com.m3urecorder.app.ui.components.*
-import com.m3urecorder.app.ui.theme.*
-import kotlin.math.max
+import com.m3urecorder.app.data.ChannelItem
+import com.m3urecorder.app.ui.MainViewModel
+import com.m3urecorder.app.ui.components.ChannelLogo
+import com.m3urecorder.app.ui.components.ChoiceChips
+import com.m3urecorder.app.ui.components.EmptyState
+import com.m3urecorder.app.ui.components.cardModifier
+import com.m3urecorder.app.ui.theme.AppTheme
 
+/** Canales de la lista: buscar, filtrar por categoría y tocar uno para grabarlo. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChannelsTab(
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    selectedGroup: String,
-    groups: List<String>,
-    onSelectGroup: (String) -> Unit,
-    channels: List<ChannelItem>,
-    isLoading: Boolean,
-    onReloadM3u: () -> Unit,
-    onWatchLive: (ChannelItem) -> Unit,
-    onSendToDirect: (ChannelItem) -> Unit,
-    onSendToSchedule: (ChannelItem) -> Unit
-) {
-    val context = LocalContext.current
-    var showGroupMenu by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // Buscador y Selector de Categorías
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            label = { Text("🔍 Buscar canal (ej. La 1, DAZN, Movistar...)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-
+fun ChannelsScreen(vm: MainViewModel) {
+    val c = AppTheme.colors
+    Column(Modifier.fillMaxSize()) {
+        // Buscador + pegar un enlace a mano
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedButton(
-                    onClick = { showGroupMenu = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = if (selectedGroup.isBlank()) "📂 Todas las categorías" else "📂 $selectedGroup",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color.White,
-                        fontSize = 12.5.sp
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = showGroupMenu,
-                    onDismissRequest = { showGroupMenu = false },
-                    modifier = Modifier
-                        .background(BgCard)
-                        .heightIn(max = 360.dp)
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("📂 Todas las categorías", color = Color.White) },
-                        onClick = {
-                            showGroupMenu = false
-                            onSelectGroup("")
-                        }
-                    )
-                    groups.forEach { g ->
-                        DropdownMenuItem(
-                            text = { Text(g, color = Color.White) },
-                            onClick = {
-                                showGroupMenu = false
-                                onSelectGroup(g)
-                            }
-                        )
+            OutlinedTextField(
+                value = vm.searchQuery,
+                onValueChange = vm::onSearchQueryChange,
+                placeholder = { Text("Buscar canal") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = {
+                    if (vm.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { vm.onSearchQueryChange("") }) { Icon(Icons.Rounded.Close, "Borrar búsqueda") }
                     }
-                }
-            }
-
-            FilledTonalButton(onClick = onReloadM3u) {
-                Text("🔄 M3U", fontSize = 12.sp)
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = c.surface,
+                    focusedContainerColor = c.surface,
+                    unfocusedBorderColor = c.border
+                ),
+                modifier = Modifier.weight(1f)
+            )
+            FilledTonalButton(
+                onClick = { vm.openSheet(null) },
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+                modifier = Modifier.height(56.dp)
+            ) {
+                Icon(Icons.Rounded.Link, null, modifier = Modifier.padding(end = 6.dp))
+                Text("Enlace")
             }
         }
 
-        if (isLoading) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AccentBlue)
+        if (vm.channelGroups.isNotEmpty()) {
+            ChoiceChips(
+                options = listOf("" to "Todos") + vm.channelGroups.map { it to it },
+                selected = vm.selectedGroup,
+                onSelect = vm::onSelectGroup,
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.padding(top = 10.dp)
+            )
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 12.dp)
+        Box(
+            Modifier
+                .padding(horizontal = 16.dp)
+                .height(3.dp)
+                .fillMaxWidth()
         ) {
-            itemsIndexed(
-                items = channels,
-                key = { idx, ch -> "${idx}_${ch.url}" },
-                contentType = { _, _ -> "channel_card" }
-            ) { _, ch ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(BgCard)
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = ch.name,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (ch.group.isNotBlank()) {
-                            Text(
-                                text = ch.group,
-                                color = Color(0xFFC7D2FE),
-                                fontSize = 10.5.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(0xFF1E293B))
-                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+            if (vm.isLoadingChannels) LinearProgressIndicator(Modifier.fillMaxWidth(), color = c.accent)
+        }
+
+        PullToRefreshBox(
+            isRefreshing = vm.isRefreshing,
+            onRefresh = vm::pullToRefresh,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 104.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (vm.channels.isEmpty() && !vm.isLoadingChannels) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        if (vm.searchQuery.isNotBlank() || vm.selectedGroup.isNotBlank()) {
+                            EmptyState(
+                                Icons.Rounded.SearchOff,
+                                "No hay canales que coincidan",
+                                "Prueba con otro nombre o con otra categoría."
+                            )
+                        } else {
+                            EmptyState(
+                                Icons.Rounded.Tv,
+                                "La lista de canales está vacía",
+                                "Revisa el archivo lista.m3u del servidor y recárgalo.",
+                                action = {
+                                    TextButton(onClick = vm::reloadM3u) {
+                                        Icon(Icons.Rounded.Refresh, null, modifier = Modifier.padding(end = 6.dp))
+                                        Text("Recargar lista")
+                                    }
+                                }
                             )
                         }
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FastActionBtn(
-                            text = "▶️ Grabar",
-                            bgColor = AccentBlue,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onSendToDirect(ch) }
-                        )
-                        FastActionBtn(
-                            text = "📅 Prog.",
-                            bgColor = AccentAmber,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onSendToSchedule(ch) }
-                        )
-                        FastActionBtn(
-                            text = "👁️ Directo",
-                            bgColor = AccentEmerald,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onWatchLive(ch) }
-                        )
-                        FastActionBtn(
-                            text = "📋",
-                            bgColor = Color(0xFF334155),
-                            modifier = Modifier.width(42.dp),
-                            onClick = {
-                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText(ch.name, ch.url))
-                                Toast.makeText(context, "📋 Enlace copiado", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                    }
+                }
+                items(vm.channels, key = { it.url + it.name }) { ch ->
+                    ChannelTile(ch, onClick = { vm.openSheet(ch) }, onLongClick = { vm.watchChannel(ch) })
                 }
             }
+        }
+    }
+}
+
+/** Logo grande y nombre. Tocar: grabar o programar. Mantener pulsado: verlo en directo. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChannelTile(ch: ChannelItem, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val c = AppTheme.colors
+    Column(
+        modifier = cardModifier()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Ver en directo")
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        ChannelLogo(ch.logoId, ch.name, size = 64.dp, corner = 12.dp)
+        Text(
+            ch.name,
+            style = MaterialTheme.typography.labelMedium,
+            color = c.text,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            minLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        if (ch.group.isNotBlank()) {
+            Text(
+                ch.group,
+                style = MaterialTheme.typography.labelSmall,
+                color = c.text3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

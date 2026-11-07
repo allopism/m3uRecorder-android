@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo de arranque con los colores de la app (tema oscuro) -->
+    <style name="Theme.M3URecorder" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_bg</item>
+    </style>
+</resources>

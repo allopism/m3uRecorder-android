@@ -23,6 +23,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.ui.draw.clip
+import com.m3urecorder.app.ui.theme.AppTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,7 +175,7 @@ fun VideoPlayerOverlay(
                 .buildUpon()
                 .setOverrideForType(TrackSelectionOverride(targetGroup, 0))
                 .build()
-            Toast.makeText(context, "🎧 ${audioTracks.getOrNull(index)?.label ?: "Pista ${index + 1}"}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Audio: ${audioTracks.getOrNull(index)?.label ?: "Pista ${index + 1}"}", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -183,7 +193,7 @@ fun VideoPlayerOverlay(
                 exoPlayer.seekTo((currentSec * 1000).toLong())
             }
             exoPlayer.playWhenReady = true
-            Toast.makeText(context, "🎧 ${audioTracks.getOrNull(index)?.label ?: "Pista ${index + 1}"}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Audio: ${audioTracks.getOrNull(index)?.label ?: "Pista ${index + 1}"}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -235,80 +245,29 @@ fun VideoPlayerOverlay(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .background(Color.Black.copy(alpha = 0.65f))
+                        .background(Color.Black.copy(alpha = 0.6f))
                         .displayCutoutPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("🎬", fontSize = 16.sp)
-                        Text(
-                            text = title,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box {
-                            OutlinedButton(
-                                onClick = { showAudioMenu = true },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                val label = if (audioTracks.size > 1) {
-                                    "🎧 Pista ${activeTrackIdx + 1}/${audioTracks.size}"
-                                } else {
-                                    "🎧 Audio"
-                                }
-                                Text(label, color = Color(0xFF93C5FD), fontSize = 12.sp)
-                            }
-
-                            DropdownMenu(
-                                expanded = showAudioMenu,
-                                onDismissRequest = { showAudioMenu = false },
-                                modifier = Modifier.background(Color(0xFF1E293B))
-                            ) {
-                                audioTracks.forEachIndexed { idx, track ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = (if (idx == activeTrackIdx) "✓ " else "   ") + track.label,
-                                                color = if (idx == activeTrackIdx) Color(0xFF60A5FA) else Color.White,
-                                                fontWeight = if (idx == activeTrackIdx) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                        },
-                                        onClick = { selectAudioTrack(idx) }
-                                    )
-                                }
-                            }
-                        }
-
-                        Button(
-                            onClick = { toggleFullscreen(false) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text("↙ Salir pantalla completa", color = Color.White, fontSize = 12.sp)
-                        }
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    AudioTrackButton(audioTracks, activeTrackIdx, showAudioMenu, { showAudioMenu = it }, ::selectAudioTrack, onDark = true)
+                    IconButton(onClick = { toggleFullscreen(false) }) {
+                        Icon(Icons.Rounded.FullscreenExit, "Salir de pantalla completa", tint = Color.White)
                     }
                 }
             }
         }
     } else {
-        // ── MODO VENTANA MODAL (VERTICAL) ──
+        // ── Ventana sobre la app (vertical) ──
+        val c = AppTheme.colors
         Dialog(
             onDismissRequest = onDismiss,
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -316,58 +275,48 @@ fun VideoPlayerOverlay(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(10.dp),
+                    .padding(12.dp),
                 shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF0F172A),
-                tonalElevation = 8.dp
+                color = c.surface
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Cabecera del Reproductor
+                    // Cabecera: título, códec y cerrar
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF111827))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Título + códec ocupan todo el espacio libre; así la X queda siempre a la derecha
                         Row(
                             modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("🎬", fontSize = 16.sp)
                             Text(
                                 text = title,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                color = c.text,
+                                style = MaterialTheme.typography.titleSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
                             if (videoCodec.isNotBlank()) {
-                                Surface(
-                                    color = Color(0xFF1E293B),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Text(
-                                        text = videoCodec,
-                                        color = Color(0xFF93C5FD),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                                Text(
+                                    text = videoCodec,
+                                    color = c.text2,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(c.surface2)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
                             }
                         }
-
-                        TextButton(onClick = onDismiss) {
-                            Text("✕ Cerrar", color = Color(0xFFFDA4AF), fontWeight = FontWeight.Bold)
-                        }
+                        IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Cerrar", tint = c.text2) }
                     }
 
-                    // Vista de Vídeo ExoPlayer (16:9)
+                    // Vídeo 16:9
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -397,103 +346,82 @@ fun VideoPlayerOverlay(
                         )
                     }
 
-                    // Barra de acciones Pro (Audio + Pantalla Completa + VLC + Copiar URL)
-                    Column(
+                    // Acciones: pista de audio, pantalla completa, abrir fuera y copiar enlace
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF111827))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(modifier = Modifier.weight(1.1f)) {
-                                Button(
-                                    onClick = { showAudioMenu = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                                ) {
-                                    val label = if (audioTracks.size > 1) {
-                                        "🎧 Pista ${activeTrackIdx + 1}/${audioTracks.size}"
-                                    } else {
-                                        "🎧 Audio (${audioTracks.size.coerceAtLeast(1)})"
-                                    }
-                                    Text(label, color = Color(0xFF93C5FD), fontSize = 11.5.sp, maxLines = 1)
+                        AudioTrackButton(audioTracks, activeTrackIdx, showAudioMenu, { showAudioMenu = it }, ::selectAudioTrack, onDark = false)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(Uri.parse(externalUrl), "video/*")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
-
-                                DropdownMenu(
-                                    expanded = showAudioMenu,
-                                    onDismissRequest = { showAudioMenu = false },
-                                    modifier = Modifier.background(Color(0xFF1E293B))
-                                ) {
-                                    if (audioTracks.isEmpty()) {
-                                        DropdownMenuItem(
-                                            text = { Text("Pista 1 · Principal", color = Color.White) },
-                                            onClick = { showAudioMenu = false }
-                                        )
-                                    } else {
-                                        audioTracks.forEachIndexed { idx, track ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        text = (if (idx == activeTrackIdx) "✓ " else "   ") + track.label,
-                                                        color = if (idx == activeTrackIdx) Color(0xFF60A5FA) else Color.White,
-                                                        fontWeight = if (idx == activeTrackIdx) FontWeight.Bold else FontWeight.Normal
-                                                    )
-                                                },
-                                                onClick = { selectAudioTrack(idx) }
-                                            )
-                                        }
-                                    }
-                                }
+                                context.startActivity(Intent.createChooser(intent, "Abrir con…"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "No hay ningún reproductor externo", Toast.LENGTH_SHORT).show()
                             }
-
-                            Button(
-                                onClick = { toggleFullscreen(true) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                            ) {
-                                Text("⛶ Completa", color = Color.White, fontSize = 11.5.sp, maxLines = 1)
-                            }
-
-                            Button(
-                                onClick = {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(Uri.parse(externalUrl), "video/*")
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        context.startActivity(Intent.createChooser(intent, "Abrir stream en..."))
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "No se encontró reproductor externo", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.weight(0.95f),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                            ) {
-                                Text("🟠 VLC", color = Color.White, fontSize = 11.5.sp, maxLines = 1)
-                            }
-
-                            Button(
-                                onClick = {
-                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    cm.setPrimaryClip(ClipData.newPlainText("Stream URL", externalUrl))
-                                    Toast.makeText(context, "Enlace copiado al portapapeles", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                            ) {
-                                Text("🔗", color = Color.White, fontSize = 12.sp)
-                            }
+                        }) { Icon(Icons.AutoMirrored.Rounded.OpenInNew, "Abrir con otra app (VLC…)", tint = c.text2) }
+                        IconButton(onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Stream URL", externalUrl))
+                            Toast.makeText(context, "Enlace copiado", Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Rounded.ContentCopy, "Copiar enlace", tint = c.text2) }
+                        IconButton(onClick = { toggleFullscreen(true) }) {
+                            Icon(Icons.Rounded.Fullscreen, "Pantalla completa", tint = c.text2)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Botón de pista de audio con su menú (solo útil si la grabación trae varias). */
+@Composable
+private fun AudioTrackButton(
+    tracks: List<AudioTrackInfo>,
+    activeIdx: Int,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (Int) -> Unit,
+    onDark: Boolean
+) {
+    val c = AppTheme.colors
+    val fg = if (onDark) Color.White else c.text2
+    Box {
+        TextButton(onClick = { onExpandedChange(true) }) {
+            Icon(Icons.Rounded.Headphones, null, tint = fg, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (tracks.size > 1) "Pista ${activeIdx + 1} de ${tracks.size}" else "Audio",
+                color = fg,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+            if (tracks.isEmpty()) {
+                DropdownMenuItem(text = { Text("Pista 1 · Principal") }, onClick = { onExpandedChange(false) })
+            }
+            tracks.forEachIndexed { idx, track ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            track.label,
+                            color = if (idx == activeIdx) c.accent else c.text,
+                            fontWeight = if (idx == activeIdx) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        if (idx == activeIdx) Icon(Icons.Rounded.Check, null, tint = c.accent)
+                        else Spacer(Modifier.size(24.dp))
+                    },
+                    onClick = { onSelect(idx) }
+                )
             }
         }
     }

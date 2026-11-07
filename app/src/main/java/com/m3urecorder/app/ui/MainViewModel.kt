@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.m3urecorder.app.data.ApiClient
+import com.m3urecorder.app.data.AppPrefs
 import com.m3urecorder.app.data.ChannelItem
 import com.m3urecorder.app.data.HistoryItem
 import com.m3urecorder.app.data.ScheduleItem
@@ -16,8 +17,11 @@ import com.m3urecorder.app.data.VpnCountriesResponse
 import com.m3urecorder.app.service.NetworkTransportHelper
 import com.m3urecorder.app.service.RecordingNotifier
 import com.m3urecorder.app.service.ScheduleAlarms
-import com.m3urecorder.app.util.defaultTimestampFilename
-import com.m3urecorder.app.util.sanitizeChannelFilename
+import com.m3urecorder.app.ui.theme.ThemeMode
+import com.m3urecorder.app.util.defaultName
+import com.m3urecorder.app.util.epochMillis
+import com.m3urecorder.app.util.parseHms
+import com.m3urecorder.app.util.stripExt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -27,29 +31,44 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** Pestañas de la barra inferior. */
-enum class Tab { DIRECT, SCHEDULE, CHANNELS, HISTORY }
+/** Pestañas de la barra inferior (las mismas vistas que la web). */
+enum class Tab { CHANNELS, RECORDINGS }
 
 /** Qué reproducir: título, archivo del servidor (null si es un canal en directo) y URL. */
 data class PlayerTarget(val title: String, val filename: String?, val url: String)
 
-/** Formulario de grabación al momento. */
-class DirectForm {
-    var url by mutableStateOf("")
-    var duration by mutableStateOf("01:00:00")
-    var filename by mutableStateOf(defaultTimestampFilename("grabacion"))
-    var format by mutableStateOf("mkv")
-    var vpnCountry by mutableStateOf("")
-}
+enum class SheetMode { NOW, SCHEDULE }
 
-/** Formulario de programación. */
-class ScheduleForm {
-    var url by mutableStateOf("")
+/** Duraciones rápidas de "Ahora" (valor que entiende el servidor → texto). */
+val DURATION_CHOICES = listOf(
+    "00:15:00" to "15 min", "00:30:00" to "30 min", "01:00:00" to "1 h",
+    "02:00:00" to "2 h", "03:00:00" to "3 h", "custom" to "Otra"
+)
+
+/** Formatos de salida con su explicación. */
+val FORMAT_CHOICES = listOf(
+    "mp4" to "MP4 · el más compatible",
+    "mkv" to "MKV · conserva subtítulos y pistas",
+    "ts" to "TS · copia exacta del directo",
+    "avi" to "AVI"
+)
+
+/** Panel para grabar o programar un canal (o un enlace pegado a mano). */
+class RecordSheetState(val channel: ChannelItem?, url: String, mode: SheetMode, format: String) {
+    var mode by mutableStateOf(mode)
+    var url by mutableStateOf(url)
+    var durationChoice by mutableStateOf("01:00:00")
+    var customDuration by mutableStateOf("")
     var start by mutableStateOf(LocalDateTime.now().plusMinutes(5).withSecond(0).withNano(0))
     var end by mutableStateOf(LocalDateTime.now().plusMinutes(65).withSecond(0).withNano(0))
-    var filename by mutableStateOf(defaultTimestampFilename("prog"))
-    var format by mutableStateOf("mkv")
+    var name by mutableStateOf(defaultName(channel?.name))
+    var format by mutableStateOf(format)
     var vpnCountry by mutableStateOf("")
+    var error by mutableStateOf<String?>(null)
+    var submitting by mutableStateOf(false)
+
+    val isManual: Boolean get() = channel == null
+    val title: String get() = channel?.name ?: "Grabar un enlace"
 }
 
 /**
@@ -63,7 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Estado del servidor ──────────────────────
     var status by mutableStateOf(ServerStatus()); private set
-    /** null = conectado; si no, el motivo (se muestra en la cabecera). */
+    /** null = conectado; si no, el motivo (se muestra bajo la cabecera). */
     var connectionError by mutableStateOf<String?>(null); private set
     /** Cambia al guardar los ajustes: la pantalla reinicia el sondeo con la nueva dirección/token. */
     var settingsVersion by mutableIntStateOf(0); private set
@@ -75,19 +94,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var channelGroups by mutableStateOf<List<String>>(emptyList()); private set
     var channels by mutableStateOf<List<ChannelItem>>(emptyList()); private set
     var isLoadingChannels by mutableStateOf(false); private set
+    var isRefreshing by mutableStateOf(false); private set
     var searchQuery by mutableStateOf(""); private set
     var selectedGroup by mutableStateOf(""); private set
     private var searchJob: Job? = null
 
-    // ── Formularios y navegación ─────────────────
-    val directForm = DirectForm()
-    val scheduleForm = ScheduleForm()
-    var currentTab by mutableStateOf(Tab.DIRECT)
+    /** Programadas pendientes o en curso, de la más próxima a la más lejana. */
+    val upcoming: List<ScheduleItem>
+        get() = schedules.filter { it.status == "pending" || it.status == "running" }
+            .sortedBy { epochMillis(it.startTime) ?: Long.MAX_VALUE }
+
+    /** Programaciones ya terminadas (completadas, fallidas o canceladas). */
+    val pastSchedules: List<ScheduleItem>
+        get() = schedules.filter { it.status != "pending" && it.status != "running" }
+
+    // ── Navegación, panel y ajustes ──────────────
+    var currentTab by mutableStateOf(Tab.CHANNELS)
+    var sheet by mutableStateOf<RecordSheetState?>(null); private set
     var player by mutableStateOf<PlayerTarget?>(null)
     /** Primer arranque: sin dirección del servidor se abren los ajustes directamente. */
     var showSettings by mutableStateOf(!api.isConfigured)
-    /** Texto del aviso superior que el usuario ha cerrado (no se vuelve a mostrar). */
-    var dismissedBannerText by mutableStateOf("")
+    var themeMode by mutableStateOf(
+        runCatching { ThemeMode.valueOf(AppPrefs.getThemeMode(app)) }.getOrDefault(ThemeMode.SYSTEM)
+    ); private set
 
     /** Mensajes cortos para mostrar como Toast. */
     private val _messages = Channel<String>(Channel.BUFFERED)
@@ -111,9 +140,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching { vpnCountries = api.fetchVpnCountries() }
             runCatching { channelGroups = api.fetchChannelGroups() }
-            runCatching { channels = api.searchChannels("", "") }
-            refreshSchedules()
-            refreshHistory()
+            searchChannels()
+            refreshRecordings()
         }
     }
 
@@ -123,6 +151,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun pollWhileVisible() {
         var wasRunning = status.running
+        var lastCounts = status.historyCount to status.schedulesPending
         while (true) {
             if (!api.isConfigured) {
                 connectionError = "Configura la dirección del servidor en Ajustes"
@@ -131,38 +160,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 runCatching { api.fetchStatus() }
                     .onSuccess { st ->
+                        // Si veníamos de un error (o del primer arranque), las listas pueden estar vacías
+                        val reconnected = connectionError != null
                         status = st
                         connectionError = null
                         RecordingNotifier.syncFromStatus(context, st)
-                        if (st.running) dismissedBannerText = ""
-                        // Al empezar o terminar una grabación cambian la cola y la biblioteca
-                        if (wasRunning != st.running) {
-                            refreshSchedules()
-                            refreshHistory()
-                        }
+                        // Al empezar/terminar una grabación (o cambiar desde la web) se recargan las listas
+                        val counts = st.historyCount to st.schedulesPending
+                        if (wasRunning != st.running || counts != lastCounts || reconnected) refreshRecordings()
+                        if (wasRunning && !st.running) announceResult(st)
                         wasRunning = st.running
+                        lastCounts = counts
                     }
                     .onFailure { connectionError = it.message }
             }
-            delay(if (status.running) 2500L else 4000L)
+            delay(if (status.running) 2000L else 4000L)
         }
     }
 
-    /** Recarga la cola de programadas y deja las alarmas locales al día. */
-    suspend fun refreshSchedules() {
+    private fun announceResult(st: ServerStatus) {
+        val r = st.lastResult ?: return
+        when (r.status) {
+            "ok" -> say("Grabación terminada")
+            "stopped" -> say("Grabación detenida")
+            else -> say("La grabación falló: ${r.reason.ifBlank { "motivo desconocido" }}")
+        }
+    }
+
+    /** Recarga programadas (y sus alarmas locales) y biblioteca. */
+    suspend fun refreshRecordings() {
         runCatching { api.fetchSchedules() }.onSuccess {
             schedules = it
             ScheduleAlarms.sync(context, it)
         }
-    }
-
-    suspend fun refreshHistory() {
         runCatching { history = api.fetchHistory() }
     }
 
-    fun refreshSchedulesAsync() = viewModelScope.launch { refreshSchedules() }
-
-    fun refreshHistoryAsync() = viewModelScope.launch { refreshHistory() }
+    /** "Deslizar para actualizar" en las listas. */
+    fun pullToRefresh() {
+        viewModelScope.launch {
+            isRefreshing = true
+            if (currentTab == Tab.CHANNELS) {
+                runCatching { channelGroups = api.fetchChannelGroups() }
+                runCatching { channels = api.searchChannels(searchQuery, selectedGroup) }
+            } else {
+                refreshRecordings()
+            }
+            isRefreshing = false
+        }
+    }
 
     fun onSettingsSaved() {
         showSettings = false
@@ -171,42 +217,89 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         reloadAll()
     }
 
-    // ── Grabación al momento ─────────────────────
+    fun setTheme(mode: ThemeMode) {
+        themeMode = mode
+        AppPrefs.setThemeMode(context, mode.name)
+    }
 
-    fun startDirectRecording() {
-        val f = directForm
-        viewModelScope.launch {
-            api.startDirectRecording(f.url, f.duration, f.filename, f.format, f.vpnCountry)
-                .onSuccess {
-                    say("▶️ $it")
-                    f.filename = defaultTimestampFilename("grabacion")
-                }
-                .onFailure(::sayError)
+    // ── Panel de grabar / programar ──────────────
+
+    fun openSheet(channel: ChannelItem?, mode: SheetMode = SheetMode.NOW, url: String = channel?.url.orEmpty()) {
+        sheet = RecordSheetState(channel, url, mode, AppPrefs.getLastFormat(context))
+    }
+
+    fun closeSheet() {
+        sheet = null
+    }
+
+    fun submitSheet() {
+        val s = sheet ?: return
+        s.error = null
+        val url = s.url.trim()
+        val name = s.name.trim()
+        when {
+            url.isEmpty() -> s.error = "Pega el enlace del stream."
+            name.isEmpty() -> s.error = "Ponle un nombre a la grabación."
+            s.mode == SheetMode.NOW -> submitNow(s, url, name)
+            else -> submitSchedule(s, url, name)
         }
     }
+
+    private fun submitNow(s: RecordSheetState, url: String, name: String) {
+        val duration = if (s.durationChoice == "custom") s.customDuration.trim() else s.durationChoice
+        if (parseHms(duration) == null) {
+            s.error = "Escribe la duración como HH:MM:SS (por ejemplo 01:30:00)."
+            return
+        }
+        s.submitting = true
+        viewModelScope.launch {
+            api.startDirectRecording(url, duration, name, s.format, s.vpnCountry)
+                .onSuccess {
+                    AppPrefs.setLastFormat(context, s.format)
+                    sheet = null
+                    say("Grabación iniciada")
+                }
+                .onFailure { s.error = it.message }
+            s.submitting = false
+        }
+    }
+
+    private fun submitSchedule(s: RecordSheetState, url: String, name: String) {
+        val now = LocalDateTime.now()
+        when {
+            !s.end.isAfter(s.start) -> { s.error = "La hora de fin tiene que ser posterior a la de inicio."; return }
+            !s.end.isAfter(now) -> { s.error = "Esa franja ya ha pasado."; return }
+        }
+        val zone = ZoneId.systemDefault()
+        // Hora local del móvil con su desfase (correcto también en los cambios de hora)
+        val startIso = s.start.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val endIso = s.end.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        s.submitting = true
+        viewModelScope.launch {
+            api.createSchedule(url, startIso, endIso, name, s.format, s.vpnCountry)
+                .onSuccess {
+                    AppPrefs.setLastFormat(context, s.format)
+                    sheet = null
+                    say("Grabación programada")
+                    refreshRecordings()
+                    currentTab = Tab.RECORDINGS
+                }
+                .onFailure { s.error = it.message }
+            s.submitting = false
+        }
+    }
+
+    /** Enlace recibido desde el menú "Compartir" de otra app: abre el panel con él. */
+    fun onSharedUrl(url: String) {
+        currentTab = Tab.CHANNELS
+        openSheet(null, url = url)
+    }
+
+    // ── Grabación en curso y programadas ─────────
 
     fun stopRecording() {
         viewModelScope.launch {
-            api.stopRecording().onSuccess { say("⏹️ $it") }.onFailure(::sayError)
-        }
-    }
-
-    // ── Programaciones ───────────────────────────
-
-    fun saveSchedule() {
-        val f = scheduleForm
-        val zone = ZoneId.systemDefault()
-        // La hora local del móvil con su desfase (correcto también en los cambios de hora)
-        val startIso = f.start.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        val endIso = f.end.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        viewModelScope.launch {
-            api.createSchedule(f.url, startIso, endIso, f.filename, f.format, f.vpnCountry)
-                .onSuccess { msg ->
-                    say("📅 $msg")
-                    f.filename = defaultTimestampFilename("prog")
-                    refreshSchedules()
-                }
-                .onFailure(::sayError)
+            api.stopRecording().onSuccess { say("Deteniendo y guardando…") }.onFailure(::sayError)
         }
     }
 
@@ -219,7 +312,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun scheduleAction(action: suspend () -> Result<String>) {
         viewModelScope.launch {
             action().onFailure(::sayError)
-            refreshSchedules()
+            refreshRecordings()
         }
     }
 
@@ -246,15 +339,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadChannelsIfEmpty() {
-        if (channels.isEmpty()) searchChannels()
-    }
-
     fun reloadM3u() {
         viewModelScope.launch {
             api.reloadM3u()
                 .onSuccess { count ->
-                    say("✅ Lista recargada: $count canales")
+                    say("Lista recargada: $count canales")
                     runCatching { channelGroups = api.fetchChannelGroups() }
                     searchChannels()
                 }
@@ -262,41 +351,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun sendChannelToDirect(ch: ChannelItem) {
-        directForm.url = ch.url
-        directForm.filename = sanitizeChannelFilename(ch.name, prefix = "")
-        currentTab = Tab.DIRECT
-        say("▶️ '${ch.name}' listo para grabar")
-    }
-
-    fun sendChannelToSchedule(ch: ChannelItem) {
-        scheduleForm.url = ch.url
-        scheduleForm.filename = sanitizeChannelFilename(ch.name, prefix = "prog_")
-        currentTab = Tab.SCHEDULE
-        say("📅 '${ch.name}' listo para programar")
-    }
-
-    /** Enlace recibido desde el menú "Compartir" de otra app. */
-    fun onSharedUrl(url: String) {
-        directForm.url = url
-        scheduleForm.url = url
-        currentTab = Tab.DIRECT
-        say("🔗 Enlace cargado en Grabar y Programar")
-    }
-
     // ── VPN ──────────────────────────────────────
 
     fun changeVpnCountry(country: String) {
-        say("🌍 Conectando VPN a $country...")
+        say("Cambiando la VPN a $country…")
         viewModelScope.launch {
-            api.changeVpnCountry(country).onSuccess { say("✅ $it") }.onFailure(::sayError)
+            api.changeVpnCountry(country).onSuccess { say(it) }.onFailure(::sayError)
         }
     }
 
-    // ── Biblioteca ───────────────────────────────
+    // ── Biblioteca y reproductor ─────────────────
 
     fun playRecording(filename: String) {
-        player = PlayerTarget(filename, filename, api.getDirectStreamUrl(filename))
+        player = PlayerTarget(stripExt(filename), filename, api.getDirectStreamUrl(filename))
     }
 
     fun watchChannel(ch: ChannelItem) {
@@ -307,8 +374,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             api.deleteHistoryItem(item.filename)
                 .onSuccess {
-                    say("🗑️ ${item.filename} eliminado")
-                    refreshHistory()
+                    say("Grabación eliminada")
+                    refreshRecordings()
                 }
                 .onFailure(::sayError)
         }

@@ -71,6 +71,12 @@ dependencies {
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
 
+    // Imágenes: logos de canales (PNG/SVG) y miniaturas de grabaciones
+    val coilVersion = "3.4.0" // 3.5+ requiere Kotlin 2.4
+    implementation("io.coil-kt.coil3:coil-compose:$coilVersion")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:$coilVersion")
+    implementation("io.coil-kt.coil3:coil-svg:$coilVersion")
+
     // Corrutinas y comprobación periódica en segundo plano
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.work:work-runtime-ktx:2.11.2")

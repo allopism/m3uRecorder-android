@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.M3URecorder" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#090D16</item>
-        <item name="android:navigationBarColor">#0B1120</item>
+    <!-- Fondo de arranque con los colores de la app (tema claro) -->
+    <style name="Theme.M3URecorder" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/app_bg</item>
     </style>
 </resources>

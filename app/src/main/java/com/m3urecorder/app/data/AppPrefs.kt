@@ -10,6 +10,8 @@ object AppPrefs {
     private const val KEY_LIVE_NOTIF_ENABLED = "bg_notifs_enabled"
     private const val KEY_POSTED_RECORDING = "posted_recording_key"
     private const val KEY_ALARM_IDS = "schedule_alarm_ids"
+    private const val KEY_THEME = "theme_mode"
+    private const val KEY_LAST_FORMAT = "last_format"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -44,6 +46,20 @@ object AppPrefs {
 
     fun setScheduledAlarmIds(context: Context, ids: Set<String>) {
         prefs(context).edit().putStringSet(KEY_ALARM_IDS, ids).apply()
+    }
+
+    /** Tema: "SYSTEM", "LIGHT" o "DARK". */
+    fun getThemeMode(context: Context): String = prefs(context).getString(KEY_THEME, "SYSTEM") ?: "SYSTEM"
+
+    fun setThemeMode(context: Context, mode: String) {
+        prefs(context).edit().putString(KEY_THEME, mode).apply()
+    }
+
+    /** Último formato usado: se propone por defecto en la siguiente grabación. */
+    fun getLastFormat(context: Context): String = prefs(context).getString(KEY_LAST_FORMAT, "mp4") ?: "mp4"
+
+    fun setLastFormat(context: Context, format: String) {
+        prefs(context).edit().putString(KEY_LAST_FORMAT, format).apply()
     }
 
     /** Acepta "192.168.1.10:9984" y añade http:// si falta. */

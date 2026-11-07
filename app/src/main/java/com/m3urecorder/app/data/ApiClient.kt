@@ -109,6 +109,9 @@ class ApiClient(
 
     private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
+    /** optString devuelve "null" (texto) si el valor es null en el JSON: se trata como vacío. */
+    private fun String.ifBlankNull(): String = if (this == "null") "" else this
+
     private fun JSONObject.optNullableString(key: String): String? = if (isNull(key)) null else optString(key)
 
     // ── Estado y VPN ─────────────────────────────
@@ -124,7 +127,8 @@ class ApiClient(
             startTime = obj.optNullableString("start_time"),
             durationRequested = if (obj.isNull("duration_requested")) null else obj.optInt("duration_requested"),
             filename = obj.optNullableString("filename"),
-            channel = obj.optString("channel", ""),
+            channel = obj.optString("channel", "").ifBlankNull(),
+            logoId = obj.optString("logo_id", "").ifBlankNull(),
             mode = obj.optNullableString("mode"),
             vpnCountry = obj.optNullableString("vpn_country"),
             serverTime = obj.optString("server_time", ""),
@@ -220,7 +224,8 @@ class ApiClient(
                 id = o.optString("id"),
                 url = o.optString("url"),
                 filename = o.optString("filename"),
-                channel = o.optString("channel", ""),
+                channel = o.optString("channel", "").ifBlankNull(),
+                logoId = o.optString("logo_id", "").ifBlankNull(),
                 format = o.optString("format", "mp4"),
                 startTime = o.optString("start_time"),
                 endTime = o.optString("end_time"),
@@ -278,7 +283,8 @@ class ApiClient(
             HistoryItem(
                 filename = o.optString("filename"),
                 url = o.optString("url"),
-                channel = o.optString("channel", ""),
+                channel = o.optString("channel", "").ifBlankNull(),
+                logoId = o.optString("logo_id", "").ifBlankNull(),
                 start = o.optString("start"),
                 end = o.optString("end"),
                 durationRequested = o.optString("duration_requested", ""),
@@ -333,6 +339,10 @@ class ApiClient(
     fun getDirectStreamUrl(filename: String, sig: String = ""): String = withSig("$baseUrl/stream/${enc(filename)}", sig)
 
     fun getDownloadUrl(filename: String, sig: String = ""): String = withSig("$baseUrl/download/${enc(filename)}", sig)
+
+    fun logoUrl(logoId: String): String = "$baseUrl/logo/${enc(logoId)}"
+
+    fun thumbUrl(filename: String): String = "$baseUrl/thumb/${enc(filename)}"
 
     fun getPipeTrackStreamUrl(filename: String, trackIndex: Int, startSec: Double): String =
         "$baseUrl/stream-track/${enc(filename)}?track=$trackIndex&start=${"%.1f".format(java.util.Locale.US, startSec)}"

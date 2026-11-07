@@ -107,6 +107,7 @@ object RecordingNotifier {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFFE03131.toInt()) // rojo de la marca (como el icono y la web)
             .setContentTitle("Grabando · $title")
             .setContentText("${if (scheduled) "Programada" else "Al momento"} · termina a las $endText")
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)

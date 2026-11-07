@@ -1,6 +1,7 @@
 package com.m3urecorder.app.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -8,38 +9,78 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import com.m3urecorder.app.data.VpnCountryOption
 import com.m3urecorder.app.service.BackgroundSync
-import com.m3urecorder.app.ui.components.LiveStatusBanner
-import com.m3urecorder.app.ui.screens.ChannelsTab
-import com.m3urecorder.app.ui.screens.DirectRecordTab
-import com.m3urecorder.app.ui.screens.HistoryTab
-import com.m3urecorder.app.ui.screens.ScheduleTab
+import com.m3urecorder.app.ui.components.ConnectionBanner
+import com.m3urecorder.app.ui.components.LiveBar
+import com.m3urecorder.app.ui.components.LocalApiClient
+import com.m3urecorder.app.ui.components.LocalImageLoader
+import com.m3urecorder.app.ui.components.buildImageLoader
+import com.m3urecorder.app.ui.screens.ChannelsScreen
+import com.m3urecorder.app.ui.screens.RecordSheet
+import com.m3urecorder.app.ui.screens.RecordingsScreen
 import com.m3urecorder.app.ui.screens.ServerSettingsDialog
-import com.m3urecorder.app.ui.theme.*
+import com.m3urecorder.app.ui.theme.AppTheme
 
-/** Pantalla principal: cabecera, pestañas, aviso de estado, reproductor y ajustes. */
+/** Pantalla principal: cabecera, avisos, pestañas, panel de grabar, reproductor y ajustes. */
 @Composable
 fun M3URecorderApp(
     vm: MainViewModel,
@@ -47,6 +88,20 @@ fun M3URecorderApp(
     onConsumedSharedUrl: () -> Unit
 ) {
     val context = LocalContext.current
+    val c = AppTheme.colors
+
+    // Iconos de la barra de estado oscuros en tema claro y claros en tema oscuro
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            (view.context as? Activity)?.window?.let { w ->
+                WindowCompat.getInsetsController(w, view).apply {
+                    isAppearanceLightStatusBars = !c.isDark
+                    isAppearanceLightNavigationBars = !c.isDark
+                }
+            }
+        }
+    }
 
     // Permiso de notificaciones (Android 13+)
     val notifPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -79,270 +134,178 @@ fun M3URecorderApp(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            containerColor = BgBase,
-            topBar = { TopBar(vm) },
-            bottomBar = { BottomBar(vm) }
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                val status = vm.status
-                // Aviso de estado / progreso (se puede ocultar cuando no hay grabación)
-                val isDefaultIdle = !status.running &&
-                    (status.progress.isBlank() || status.progress == "Listo para grabar" || status.progress == "Listo")
-                val isDismissed = !status.running && status.progress == vm.dismissedBannerText
-                if (!isDefaultIdle && !isDismissed) {
-                    LiveStatusBanner(
-                        status = status,
-                        onStopClick = vm::stopRecording,
-                        onDismissClick = { vm.dismissedBannerText = status.progress }
-                    )
-                }
+    val imageLoader = remember { buildImageLoader(context.applicationContext) }
 
-                Box(modifier = Modifier.weight(1f)) {
+    CompositionLocalProvider(LocalApiClient provides vm.api, LocalImageLoader provides imageLoader) {
+        Box(Modifier.fillMaxSize().background(c.bg)) {
+            Scaffold(
+                containerColor = c.bg,
+                topBar = {
+                    Column(Modifier.background(c.surface)) {
+                        TopBar(vm)
+                        HorizontalDivider(color = c.border)
+                        vm.connectionError?.let { ConnectionBanner(it, onSettings = { vm.showSettings = true }) }
+                        AnimatedVisibility(vm.status.running) {
+                            LiveBar(vm.status, onStop = vm::stopRecording)
+                        }
+                    }
+                },
+                bottomBar = { BottomBar(vm) }
+            ) { innerPadding ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
                     when (vm.currentTab) {
-                        Tab.DIRECT -> {
-                            val f = vm.directForm
-                            DirectRecordTab(
-                                url = f.url,
-                                onUrlChange = { f.url = it },
-                                duration = f.duration,
-                                onDurationChange = { f.duration = it },
-                                filename = f.filename,
-                                onFilenameChange = { f.filename = it },
-                                format = f.format,
-                                onFormatChange = { f.format = it },
-                                vpnCountry = f.vpnCountry,
-                                onVpnCountryChange = { f.vpnCountry = it },
-                                vpnCountries = vm.vpnCountries,
-                                isRunning = status.running,
-                                onStartRecording = vm::startDirectRecording,
-                                onStopRecording = vm::stopRecording
-                            )
-                        }
-
-                        Tab.SCHEDULE -> {
-                            val f = vm.scheduleForm
-                            ScheduleTab(
-                                url = f.url,
-                                onUrlChange = { f.url = it },
-                                startDt = f.start,
-                                onStartDtChange = { f.start = it },
-                                endDt = f.end,
-                                onEndDtChange = { f.end = it },
-                                filename = f.filename,
-                                onFilenameChange = { f.filename = it },
-                                format = f.format,
-                                onFormatChange = { f.format = it },
-                                vpnCountry = f.vpnCountry,
-                                onVpnCountryChange = { f.vpnCountry = it },
-                                vpnCountries = vm.vpnCountries,
-                                schedules = vm.schedules,
-                                onSaveSchedule = vm::saveSchedule,
-                                onRefreshSchedules = { vm.refreshSchedulesAsync() },
-                                onClearFinished = vm::clearFinishedSchedules,
-                                onCancelJob = vm::cancelSchedule,
-                                onDeleteJob = vm::deleteSchedule,
-                                onStopActive = vm::stopRecording,
-                                onPlayJob = vm::playRecording
-                            )
-                        }
-
-                        Tab.CHANNELS -> ChannelsTab(
-                            searchQuery = vm.searchQuery,
-                            onSearchQueryChange = vm::onSearchQueryChange,
-                            selectedGroup = vm.selectedGroup,
-                            groups = vm.channelGroups,
-                            onSelectGroup = vm::onSelectGroup,
-                            channels = vm.channels,
-                            isLoading = vm.isLoadingChannels,
-                            onReloadM3u = vm::reloadM3u,
-                            onWatchLive = vm::watchChannel,
-                            onSendToDirect = vm::sendChannelToDirect,
-                            onSendToSchedule = vm::sendChannelToSchedule
-                        )
-
-                        Tab.HISTORY -> HistoryTab(
-                            history = vm.history,
-                            onRefresh = { vm.refreshHistoryAsync() },
-                            onPlayRecording = { vm.playRecording(it.filename) },
-                            onDownloadRecording = { item ->
-                                vm.downloadUrl(item) { url ->
-                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                                        .onFailure { Toast.makeText(context, "No hay app para abrir la descarga", Toast.LENGTH_SHORT).show() }
-                                }
-                            },
-                            onDeleteRecording = vm::deleteRecording
-                        )
+                        Tab.CHANNELS -> ChannelsScreen(vm)
+                        Tab.RECORDINGS -> RecordingsScreen(vm, onDownload = { item ->
+                            vm.downloadUrl(item) { url ->
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                    .onFailure { Toast.makeText(context, "No hay ninguna app para abrir la descarga", Toast.LENGTH_SHORT).show() }
+                            }
+                        })
                     }
                 }
             }
-        }
 
-        // Reproductor (ventana o pantalla completa sobre todo lo demás)
-        vm.player?.let { target ->
-            VideoPlayerOverlay(
-                title = target.title,
-                filenameOrNull = target.filename,
-                directStreamUrl = target.url,
-                apiClient = vm.api,
-                onDismiss = { vm.player = null }
-            )
-        }
+            vm.sheet?.let { sheet ->
+                RecordSheet(
+                    state = sheet,
+                    vpnEnabled = vm.status.vpn.enabled,
+                    vpnCountries = vm.vpnCountries,
+                    onDismiss = vm::closeSheet,
+                    onSubmit = vm::submitSheet,
+                    onWatchLive = {
+                        sheet.channel?.let(vm::watchChannel)
+                        vm.closeSheet()
+                    }
+                )
+            }
 
-        if (vm.showSettings) {
-            ServerSettingsDialog(
-                context = context,
-                onDismiss = { vm.showSettings = false },
-                onSaved = vm::onSettingsSaved
-            )
+            // Reproductor (ventana o pantalla completa sobre todo lo demás)
+            vm.player?.let { target ->
+                VideoPlayerOverlay(
+                    title = target.title,
+                    filenameOrNull = target.filename,
+                    directStreamUrl = target.url,
+                    apiClient = vm.api,
+                    onDismiss = { vm.player = null }
+                )
+            }
+
+            if (vm.showSettings) {
+                ServerSettingsDialog(
+                    context = context,
+                    themeMode = vm.themeMode,
+                    onThemeChange = vm::setTheme,
+                    onDismiss = { vm.showSettings = false },
+                    onSaved = vm::onSettingsSaved
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun TopBar(vm: MainViewModel) {
-    val status = vm.status
-    var showVpnMenu by remember { mutableStateOf(false) }
-
-    Column(
+    val c = AppTheme.colors
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(BgSurface)
             .statusBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .height(56.dp)
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Fila 1: marca, estado de conexión y ajustes
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(AccentBlue),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🎬", fontSize = 18.sp)
-                }
-                Column {
-                    Text(
-                        text = "M3U8 Stream Recorder",
-                        color = Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 16.sp
-                    )
-                    val err = vm.connectionError
-                    Text(
-                        text = if (err == null) "🟢 Conectado · ${vm.api.baseUrl}" else "🔴 $err",
-                        color = if (err == null) TextSecondary else Color(0xFFFDA4AF),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            IconButton(onClick = { vm.showSettings = true }) {
-                Text("⚙️", fontSize = 18.sp)
-            }
+        // Marca: el mismo símbolo de "grabar" que la cabecera de la web (anillo y punto rojos)
+        RecordMark(color = c.rec, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("m3uRecorder", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.text)
+        Spacer(Modifier.weight(1f))
+        if (vm.status.vpn.enabled) VpnChip(vm)
+        IconButton(onClick = { vm.showSettings = true }) {
+            Icon(Icons.Rounded.Settings, "Ajustes", tint = c.text2)
         }
+    }
+}
 
-        // Fila 2: país de la VPN (toca para cambiarlo) y estado de grabación
+/** Símbolo de la app: anillo con un punto en el centro (como el icono y la web). */
+@Composable
+private fun RecordMark(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val unit = size.minDimension / 24f // mismo dibujo que el SVG de la web (24×24)
+        drawCircle(color, radius = 9f * unit, style = Stroke(width = 2f * unit))
+        drawCircle(color, radius = 4f * unit)
+    }
+}
+
+/** País actual de la VPN; al tocarlo se puede cambiar. */
+@Composable
+private fun VpnChip(vm: MainViewModel) {
+    val c = AppTheme.colors
+    val vpn = vm.status.vpn
+    var open by remember { mutableStateOf(false) }
+    val country = vpn.configuredCountry.ifBlank { vpn.ipCountry.ifBlank { "VPN" } }
+    val dotColor = when {
+        vpn.switching -> c.warn
+        vpn.publicIp.isNotBlank() -> c.ok
+        else -> c.text3
+    }
+    Box {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .border(1.dp, c.border, RoundedCornerShape(999.dp))
+                .clickable { open = true }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Box {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = Color(0xFF064E3B).copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, AccentEmerald.copy(alpha = 0.45f)),
-                    modifier = Modifier.clickable { showVpnMenu = true }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (status.vpn.switching) AccentAmber else AccentEmerald)
-                        )
-                        val vpnTxt = if (status.vpn.switching) "⏳ Cambiando VPN..." else "🛡️ ${status.vpn.activeCountryDisplay} ▾"
-                        Text(vpnTxt, color = Color(0xFFA7F3D0), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = showVpnMenu,
-                    onDismissRequest = { showVpnMenu = false },
-                    modifier = Modifier.background(BgCard)
-                ) {
-                    val list = vm.vpnCountries.featured.ifEmpty {
-                        listOf(
-                            VpnCountryOption("Spain", "🇪🇸 España (Spain)"),
-                            VpnCountryOption("Japan", "🇯🇵 Japón (Japan)"),
-                            VpnCountryOption("Switzerland", "🇨🇭 Suiza (Switzerland)"),
-                            VpnCountryOption("Netherlands", "🇳🇱 Países Bajos (Netherlands)"),
-                            VpnCountryOption("United Kingdom", "🇬🇧 Reino Unido"),
-                            VpnCountryOption("United States", "🇺🇸 Estados Unidos")
-                        )
-                    }
-                    list.forEach { item ->
-                        DropdownMenuItem(
-                            text = { Text(item.label, color = Color.White, fontSize = 13.sp) },
-                            onClick = {
-                                showVpnMenu = false
-                                vm.changeVpnCountry(item.value)
-                            }
-                        )
-                    }
-                }
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(dotColor)
+            )
+            Icon(Icons.Rounded.Shield, null, tint = c.text2, modifier = Modifier.size(14.dp))
+            Text(
+                if (vpn.switching) "$country…" else country,
+                style = MaterialTheme.typography.labelMedium,
+                color = c.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val detail = when {
+                vpn.switching -> "Conectando a $country…"
+                vpn.publicIp.isNotBlank() -> "Conectada · IP ${vpn.publicIp}"
+                vpn.available -> "Gluetun responde, pero aún no hay conexión"
+                else -> "No hay conexión con Gluetun"
             }
-
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = if (status.running) AccentRose.copy(alpha = 0.2f) else BgInput,
-                border = BorderStroke(1.dp, if (status.running) AccentRose else Color(0xFF334155))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (status.running) AccentRose else AccentEmerald)
-                    )
-                    Text(
-                        text = when {
-                            !status.running -> "Listo"
-                            status.mode == "scheduled" -> "REC · Prog"
-                            else -> "REC"
-                        },
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = c.text2,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            HorizontalDivider(color = c.border)
+            Text(
+                "Cambiar país",
+                style = MaterialTheme.typography.labelMedium,
+                color = c.text3,
+                modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp)
+            )
+            val options = vm.vpnCountries.featured.map { it.value to it.label } + vm.vpnCountries.others.map { it to it }
+            options.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        open = false
+                        vm.changeVpnCountry(value)
+                    }
+                )
             }
         }
     }
@@ -350,51 +313,36 @@ private fun TopBar(vm: MainViewModel) {
 
 @Composable
 private fun BottomBar(vm: MainViewModel) {
-    NavigationBar(containerColor = BgSurface, tonalElevation = 10.dp) {
-        NavigationBarItem(
-            selected = vm.currentTab == Tab.DIRECT,
-            onClick = { vm.currentTab = Tab.DIRECT },
-            icon = { Text("📹", fontSize = 18.sp) },
-            label = { Text("Directo", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
-        )
-        NavigationBarItem(
-            selected = vm.currentTab == Tab.SCHEDULE,
-            onClick = {
-                vm.currentTab = Tab.SCHEDULE
-                vm.refreshSchedulesAsync()
-            },
-            icon = {
-                BadgedBox(badge = {
-                    if (vm.status.schedulesPending > 0) {
-                        Badge(containerColor = AccentBlue) { Text("${vm.status.schedulesPending}") }
-                    }
-                }) { Text("📅", fontSize = 18.sp) }
-            },
-            label = { Text("Programar", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
-        )
-        NavigationBarItem(
-            selected = vm.currentTab == Tab.CHANNELS,
-            onClick = {
-                vm.currentTab = Tab.CHANNELS
-                vm.loadChannelsIfEmpty()
-            },
-            icon = { Text("📺", fontSize = 18.sp) },
-            label = { Text("Canales", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
-        )
-        NavigationBarItem(
-            selected = vm.currentTab == Tab.HISTORY,
-            onClick = {
-                vm.currentTab = Tab.HISTORY
-                vm.refreshHistoryAsync()
-            },
-            icon = {
-                BadgedBox(badge = {
-                    if (vm.status.historyCount > 0) {
-                        Badge(containerColor = Color(0xFF334155)) { Text("${vm.status.historyCount}", color = Color.White) }
-                    }
-                }) { Text("📜", fontSize = 18.sp) }
-            },
-            label = { Text("Historial", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
-        )
+    val c = AppTheme.colors
+    val colors = NavigationBarItemDefaults.colors(
+        selectedIconColor = c.accent,
+        selectedTextColor = c.accent,
+        indicatorColor = c.accentSoft,
+        unselectedIconColor = c.text2,
+        unselectedTextColor = c.text2
+    )
+    Column {
+        HorizontalDivider(color = c.border)
+        NavigationBar(containerColor = c.surface, tonalElevation = 0.dp) {
+            NavigationBarItem(
+                selected = vm.currentTab == Tab.CHANNELS,
+                onClick = { vm.currentTab = Tab.CHANNELS },
+                icon = { Icon(Icons.Rounded.Tv, null) },
+                label = { Text("Canales") },
+                colors = colors
+            )
+            NavigationBarItem(
+                selected = vm.currentTab == Tab.RECORDINGS,
+                onClick = { vm.currentTab = Tab.RECORDINGS },
+                icon = {
+                    BadgedBox(badge = {
+                        val pending = vm.status.schedulesPending
+                        if (pending > 0) Badge(containerColor = c.accent, contentColor = c.onAccent) { Text("$pending") }
+                    }) { Icon(Icons.Rounded.VideoLibrary, null) }
+                },
+                label = { Text("Grabaciones") },
+                colors = colors
+            )
+        }
     }
 }
