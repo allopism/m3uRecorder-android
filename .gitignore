@@ -1,0 +1,22 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/app/build/
+.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Configuración local (ruta del SDK de cada equipo)
+local.properties
+
+# Firma de la app: nunca al repositorio
+*.jks
+*.keystore
+keystore.properties
+
+# Sistema
+.DS_Store
+Thumbs.db
