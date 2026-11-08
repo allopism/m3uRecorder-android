@@ -16,10 +16,25 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Pruebas unitarias
-        run: ./gradlew --no-daemon testDebugUnitTest
-      - name: Compilar APK (debug)
-        run: ./gradlew --no-daemon assembleDebug
+
+      # Las descargas grandes (Gradle, compilador de Kotlin) fallan a veces con 504 o timeout en
+      # las máquinas de GitHub Actions. Si el fallo es de red se reintenta (hasta 4 veces);
+      # si falla una prueba o la compilación, se para a la primera.
+      - name: Pruebas unitarias y APK (debug)
+        run: |
+          for i in 1 2 3 4; do
+            if ./gradlew --no-daemon testDebugUnitTest assembleDebug 2>&1 | tee build.log; then
+              exit 0
+            fi
+            if ! grep -qiE "Could not (GET|download|resolve)|timed? ?out|status code 50[234]|response code: 50[234]" build.log; then
+              exit 1
+            fi
+            echo "::warning::Fallo de red en la descarga (intento $i de 4); reintentando en 30 s"
+            sleep 30
+          done
+          exit 1
+        shell: bash -o pipefail {0}
+
       - name: Guardar el APK como artefacto
         uses: actions/upload-artifact@v4
         with:
