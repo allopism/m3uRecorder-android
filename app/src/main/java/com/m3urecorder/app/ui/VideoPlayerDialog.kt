@@ -52,6 +52,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -90,6 +91,8 @@ fun VideoPlayerOverlay(
     var usePipeFallback by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
+    // ¿Se está reproduciendo? Mientras sí, la pantalla no se apaga por inactividad
+    var isPlaying by remember { mutableStateOf(false) }
     // Firma del archivo para abrirlo fuera de la app (VLC no puede enviar el token)
     var fileSig by remember { mutableStateOf("") }
     val externalUrl = if (filenameOrNull.isNullOrBlank()) directStreamUrl
@@ -142,8 +145,19 @@ fun VideoPlayerOverlay(
         }
     }
 
-    DisposableEffect(Unit) {
+    // Mantener la pantalla encendida SOLO mientras se reproduce: lo pide la propia vista del
+    // vídeo (keepScreenOn), así vale tanto en la ventana del diálogo como en pantalla completa.
+    // Al pausar, terminar o cerrar, Android vuelve a apagarla por inactividad como siempre.
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+        }
+        exoPlayer.addListener(listener)
+        isPlaying = exoPlayer.isPlaying
         onDispose {
+            exoPlayer.removeListener(listener)
             applyOrientationAndSystemBars(false)
             exoPlayer.release()
         }
@@ -222,6 +236,7 @@ fun VideoPlayerOverlay(
                         )
                     }
                 },
+                update = { it.keepScreenOn = isPlaying },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -329,6 +344,7 @@ fun VideoPlayerOverlay(
                                     )
                                 }
                             },
+                            update = { it.keepScreenOn = isPlaying },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
