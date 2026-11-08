@@ -123,7 +123,7 @@ fun ChannelsScreen(vm: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (vm.channels.isEmpty() && !vm.isLoadingChannels) {
+                if (vm.channels.isEmpty() && vm.channelsLoaded && !vm.isLoadingChannels) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         if (vm.searchQuery.isNotBlank() || vm.selectedGroup.isNotBlank()) {
                             EmptyState(

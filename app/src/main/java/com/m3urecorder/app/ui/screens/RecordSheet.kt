@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.m3urecorder.app.R
 import com.m3urecorder.app.data.VpnCountriesResponse
 import com.m3urecorder.app.ui.DURATION_CHOICES
 import com.m3urecorder.app.ui.FORMAT_CHOICES
@@ -78,6 +79,8 @@ import com.m3urecorder.app.ui.components.IconTile
 import com.m3urecorder.app.ui.theme.AppTheme
 import com.m3urecorder.app.util.fmtDay
 import com.m3urecorder.app.util.humanDuration
+import com.m3urecorder.app.util.isRepeatedHour
+import com.m3urecorder.app.util.isSkippedHour
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -266,6 +269,9 @@ private fun ScheduleSection(state: RecordSheetState, context: Context) {
                 pickDateTime(context, state.end) { state.end = it }
             }
         }
+        // Cambio de hora: elegir cuál de las dos veces, o avisar si la hora no existe
+        HourNotice("El inicio", state.start, state.startFold) { state.startFold = it }
+        HourNotice("El fin", state.end, state.endFold) { state.endFold = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(5L to "En 5 min", 15L to "En 15 min", 60L to "En 1 h").forEach { (mins, label) ->
                 AppChip(label, selected = false, onClick = {
@@ -276,14 +282,13 @@ private fun ScheduleSection(state: RecordSheetState, context: Context) {
             }
         }
         FieldLabel("Duración")
-        val currentLength = Duration.between(state.start, state.end).toMinutes()
         ChoiceChips(
             options = listOf(30L to "30 min", 60L to "1 h", 120L to "2 h", 180L to "3 h"),
-            selected = currentLength,
-            onSelect = { state.end = state.start.plusMinutes(it) }
+            selected = state.realSeconds / 60,
+            onSelect = state::setLengthMinutes
         )
-        // Resumen en una frase
-        val secs = Duration.between(state.start, state.end).seconds
+        // Resumen en una frase (con la duración real, aunque haya cambio de hora en medio)
+        val secs = state.realSeconds
         val summary = if (secs > 0) {
             "Graba ${humanDuration(secs)} · ${fmtDay(state.start)} de ${state.start.format(TIME_FMT)} a ${state.end.format(TIME_FMT)}"
         } else {
@@ -296,6 +301,45 @@ private fun ScheduleSection(state: RecordSheetState, context: Context) {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.surface2, RoundedCornerShape(10.dp))
+                .padding(10.dp)
+        )
+    }
+}
+
+/**
+ * Aviso del cambio de hora: si la hora se repite (octubre) deja elegir la 1.ª o la 2.ª vez,
+ * como la web; si no existe (marzo), avisa de que se adelanta una hora.
+ */
+@Composable
+private fun HourNotice(which: String, value: LocalDateTime, fold: Int, onFold: (Int) -> Unit) {
+    val c = AppTheme.colors
+    val time = value.format(TIME_FMT)
+    when {
+        isRepeatedHour(value) -> Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.warnSoft, RoundedCornerShape(10.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "$which (las $time) ocurre dos veces por el cambio de hora. ¿Cuál?",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.text
+            )
+            ChoiceChips(
+                options = listOf(0 to "1.ª vez (verano)", 1 to "2.ª vez (invierno)"),
+                selected = fold,
+                onSelect = onFold
+            )
+        }
+        isSkippedHour(value) -> Text(
+            "$which (las $time) no existe ese día por el cambio de hora: se adelantará una hora.",
+            style = MaterialTheme.typography.bodySmall,
+            color = c.warn,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.warnSoft, RoundedCornerShape(10.dp))
                 .padding(10.dp)
         )
     }
@@ -318,8 +362,9 @@ private fun DateTimeBox(label: String, value: LocalDateTime, modifier: Modifier,
 }
 
 private fun pickDateTime(context: Context, initial: LocalDateTime, onPicked: (LocalDateTime) -> Unit) {
-    DatePickerDialog(context, { _, y, m, d ->
-        TimePickerDialog(context, { _, hh, mm ->
+    // Con el color de la app (claro u oscuro según el sistema)
+    DatePickerDialog(context, R.style.Theme_M3URecorder_Picker, { _, y, m, d ->
+        TimePickerDialog(context, R.style.Theme_M3URecorder_Picker, { _, hh, mm ->
             onPicked(LocalDateTime.of(y, m + 1, d, hh, mm, 0))
         }, initial.hour, initial.minute, true).show()
     }, initial.year, initial.monthValue - 1, initial.dayOfMonth).show()

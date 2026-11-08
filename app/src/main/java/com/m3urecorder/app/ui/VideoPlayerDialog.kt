@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.ui.draw.clip
+import com.m3urecorder.app.applyDefaultOrientation
 import com.m3urecorder.app.ui.theme.AppTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -113,29 +114,14 @@ fun VideoPlayerOverlay(
         val window = act.window ?: return
         val controller = WindowCompat.getInsetsController(window, window.decorView)
 
+        // La app ya dibuja de borde a borde (también bajo la cámara, ver enableEdgeToEdge en
+        // MainActivity): para la pantalla completa basta con ocultar las barras y girar.
         if (fullscreen) {
-            // Permitir que la ventana principal cubra también la zona de la cámara (Notch/Cutout) al girar a izquierda o derecha
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val params = window.attributes
-                params.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-                window.attributes = params
-            }
             act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else {
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val params = window.attributes
-                params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
-                window.attributes = params
-            }
-            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            act.applyDefaultOrientation() // vertical en móvil, libre en tablet
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
     }
@@ -274,8 +260,9 @@ fun VideoPlayerOverlay(
         ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
+                    .padding(12.dp)
+                    .widthIn(max = 840.dp) // en tablets no ocupa toda la pantalla
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 color = c.surface
             ) {

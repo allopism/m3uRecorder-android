@@ -27,8 +27,12 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import com.m3urecorder.app.util.toLocalWithFold
+import com.m3urecorder.app.util.toOffsetDateTime
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
 /** Pestañas de la barra inferior (las mismas vistas que la web). */
@@ -59,8 +63,32 @@ class RecordSheetState(val channel: ChannelItem?, url: String, mode: SheetMode, 
     var url by mutableStateOf(url)
     var durationChoice by mutableStateOf("01:00:00")
     var customDuration by mutableStateOf("")
-    var start by mutableStateOf(LocalDateTime.now().plusMinutes(5).withSecond(0).withNano(0))
-    var end by mutableStateOf(LocalDateTime.now().plusMinutes(65).withSecond(0).withNano(0))
+    // Inicio y fin en hora local. Al cambiarlos se vuelve a la 1.ª vez de una hora repetida.
+    private val startState = mutableStateOf(LocalDateTime.now().plusMinutes(5).withSecond(0).withNano(0))
+    private val endState = mutableStateOf(LocalDateTime.now().plusMinutes(65).withSecond(0).withNano(0))
+    var start: LocalDateTime
+        get() = startState.value
+        set(v) { startState.value = v; startFold = 0 }
+    var end: LocalDateTime
+        get() = endState.value
+        set(v) { endState.value = v; endFold = 0 }
+
+    /** Cambio de hora de octubre: 0 = 1.ª vez (verano), 1 = 2.ª vez (invierno). */
+    var startFold by mutableIntStateOf(0)
+    var endFold by mutableIntStateOf(0)
+
+    val startInstant: OffsetDateTime get() = toOffsetDateTime(start, startFold)
+    val endInstant: OffsetDateTime get() = toOffsetDateTime(end, endFold)
+
+    /** Segundos reales que dura (correcto aunque haya un cambio de hora en medio). */
+    val realSeconds: Long get() = Duration.between(startInstant, endInstant).seconds
+
+    /** Pone el fin a [minutes] minutos REALES del inicio (eligiendo bien la vez si la hora se repite). */
+    fun setLengthMinutes(minutes: Long) {
+        val (local, fold) = toLocalWithFold(startInstant.plusMinutes(minutes))
+        end = local
+        endFold = fold
+    }
     var name by mutableStateOf(defaultName(channel?.name))
     var format by mutableStateOf(format)
     var vpnCountry by mutableStateOf("")
@@ -94,6 +122,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var channelGroups by mutableStateOf<List<String>>(emptyList()); private set
     var channels by mutableStateOf<List<ChannelItem>>(emptyList()); private set
     var isLoadingChannels by mutableStateOf(false); private set
+    /** Ya se intentó cargar una vez: hasta entonces no se muestra "lista vacía". */
+    var channelsLoaded by mutableStateOf(false); private set
+    var recordingsLoaded by mutableStateOf(false); private set
     var isRefreshing by mutableStateOf(false); private set
     var searchQuery by mutableStateOf(""); private set
     var selectedGroup by mutableStateOf(""); private set
@@ -193,7 +224,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             schedules = it
             ScheduleAlarms.sync(context, it)
         }
-        runCatching { history = api.fetchHistory() }
+        runCatching { history = api.fetchHistory() }.onSuccess { recordingsLoaded = true }
     }
 
     /** "Deslizar para actualizar" en las listas. */
@@ -265,15 +296,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun submitSchedule(s: RecordSheetState, url: String, name: String) {
-        val now = LocalDateTime.now()
         when {
-            !s.end.isAfter(s.start) -> { s.error = "La hora de fin tiene que ser posterior a la de inicio."; return }
-            !s.end.isAfter(now) -> { s.error = "Esa franja ya ha pasado."; return }
+            s.realSeconds <= 0 -> { s.error = "La hora de fin tiene que ser posterior a la de inicio."; return }
+            !s.endInstant.toInstant().isAfter(Instant.now()) -> { s.error = "Esa franja ya ha pasado."; return }
         }
-        val zone = ZoneId.systemDefault()
-        // Hora local del móvil con su desfase (correcto también en los cambios de hora)
-        val startIso = s.start.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-        val endIso = s.end.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        // Se envía cada hora con su desfase exacto (+02:00 o +01:00): el servidor no tiene que adivinar
+        val startIso = s.startInstant.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+        val endIso = s.endInstant.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
         s.submitting = true
         viewModelScope.launch {
             api.createSchedule(url, startIso, endIso, name, s.format, s.vpnCountry)
@@ -335,6 +364,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             delay(debounceMs)
             isLoadingChannels = true
             runCatching { channels = api.searchChannels(searchQuery, selectedGroup) }
+                .onSuccess { channelsLoaded = true }
             isLoadingChannels = false
         }
     }

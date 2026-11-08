@@ -1,6 +1,8 @@
 package com.m3urecorder.app
 
+import android.app.Activity
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +16,18 @@ import com.m3urecorder.app.ui.M3URecorderApp
 import com.m3urecorder.app.ui.MainViewModel
 import com.m3urecorder.app.ui.theme.M3UTheme
 
+/**
+ * Orientación por defecto: en móviles, solo vertical (la app está pensada para usarse así);
+ * en tablets (ancho mínimo de 600 dp o más) gira libremente.
+ */
+fun Activity.applyDefaultOrientation() {
+    requestedOrientation = if (resources.configuration.smallestScreenWidthDp >= 600) {
+        ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    } else {
+        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+}
+
 class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
@@ -24,6 +38,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        applyDefaultOrientation()
         handleIncomingIntent(intent)
         BackgroundSync.configure(this)
 

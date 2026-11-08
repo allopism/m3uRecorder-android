@@ -110,7 +110,7 @@ fun RecordingsScreen(vm: MainViewModel, onDownload: (HistoryItem) -> Unit) {
                         "${library.size} ${if (library.size == 1) "grabación" else "grabaciones"} · ${formatBytes(total)}"
                 )
             }
-            if (library.isEmpty()) {
+            if (library.isEmpty() && vm.recordingsLoaded) {
                 fullRow {
                     EmptyState(
                         Icons.Rounded.Movie,
