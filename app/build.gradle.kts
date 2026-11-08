@@ -20,9 +20,9 @@ android {
         applicationId = "com.m3urecorder.app"
         minSdk = 28
         targetSdk = 36
-        // A la par que el servidor (m3uRecorder 2.0.0). versionCode sube en cada versión publicada.
-        versionCode = 2
-        versionName = "2.0.0"
+        // Compatible con el servidor m3uRecorder 2.0.x. versionCode sube en cada versión publicada.
+        versionCode = 3
+        versionName = "2.0.1"
 
         vectorDrawables {
             useSupportLibrary = true
